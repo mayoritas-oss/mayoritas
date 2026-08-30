@@ -289,7 +289,7 @@ async function loadAllData() {
     if (r.ok) okCount++; else failCount++;
     console.log("[mayoritas]", r.ticker, r.ok ? "OK" : "GAGAL: " + r.error, r);
     statusText.textContent = `Memuat data baru... (${i + 1}/${toFetch.length})`;
-    if (i < toFetch.length - 1) await sleep(8000); // 8 detik antar request, di bawah limit 8/menit
+    if (i < toFetch.length - 1) await sleep(1200); // 8 detik antar request, di bawah limit 8/menit
   }
 
   statusText.textContent = `Data siap: ${okCount} sukses` + (failCount ? `, ${failCount} gagal` : "");
