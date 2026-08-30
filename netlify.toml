@@ -1,1 +1,3 @@
-[build]\n functions = "netlify/functions"\n publish = "public"\n
+[build]
+  functions = "netlify/functions"
+    publish = "public"
