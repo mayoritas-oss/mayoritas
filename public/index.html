@@ -369,7 +369,7 @@ async function loadAllData() {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toFetch.length || 1) }, worker));
 
-  statusText.textContent = `Data siap: ${okCount} sukses` + (failCount ? `, ${failCount} gagal` : "");
+  statusText.textContent = ` ${okCount} ` + (failCount ? `, ${failCount} gagal` : "");
   applyBtn.disabled = false;
 }
 
@@ -506,7 +506,7 @@ applyBtn.addEventListener("click", () => {
   const newVisible = tickers.filter(t => passesFilter(t, mode));
   const sameAsCurrent = newVisible.length === visibleTickers.length &&
     newVisible.every((t, i) => t === visibleTickers[i]);
-  statusText.textContent = `${newVisible.length} dari ${tickers.length} saham lolos filter`;
+  statusText.textContent = `${newVisible.length} / ${tickers.length} `;
   if (sameAsCurrent) return;
   visibleTickers = newVisible;
   renderGrid(visibleTickers);
