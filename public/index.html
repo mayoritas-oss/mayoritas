@@ -39,7 +39,6 @@ const CARD_DEFS = [
   // -- A. Market Pulse --
   { id: "ihsg-mini",     group: "Market Pulse",     title: "IHSG",                              span: 2, real: true },
   { id: "breadth",       group: "Market Pulse",     title: "Breadth IDX (Advance/Decline)",      span: 1, real: false },
-  { id: "ma-breadth",    group: "Market Pulse",     title: "Above/Below MA50 & MA200 (IDX)",     span: 1, real: false },
   { id: "sector-perf",   group: "Market Pulse",     title: "Performa Sektor Hari Ini",           span: 2, real: false },
 
   // -- B. Global / US Context --
@@ -48,31 +47,55 @@ const CARD_DEFS = [
   { id: "commodities",   group: "Global Context",   title: "Komoditas",                          span: 2, real: true },
   { id: "yield10y",      group: "Global Context",   title: "US 10Y Treasury Yield",              span: 1, real: true },
 
-  // -- C. Watchlist Insight --
-  { id: "wl-bullish",    group: "Watchlist Insight", title: "Bullish (di atas semua MA)",        span: 1, real: true },
-  { id: "wl-bearish",    group: "Watchlist Insight", title: "Bearish (di bawah semua MA)",        span: 1, real: true },
-  { id: "wl-mixed",      group: "Watchlist Insight", title: "Mixed / Transisi",                  span: 1, real: true },
-  { id: "wl-newcross",   group: "Watchlist Insight", title: "Cross Terbaru (Golden/Death)",       span: 1, real: true },
-
-  // -- D. News --
+  // -- C. News --
   { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 span: 2, real: true },
   { id: "news-global",   group: "News",             title: "Headline Global / US",               span: 2, real: true },
   { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 span: 2, real: true },
-  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             span: 2, real: true },
+  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             span: 2, real: false },
 
-  // -- E. Kalender & Konteks --
-  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 span: 2, real: true },
+  // -- D. Kalender & Konteks --
+  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 span: 2, real: false },
   { id: "market-status", group: "Kalender & Konteks", title: "Status Pasar (IDX & US)",           span: 2, real: true },
 
-  // -- F. Meta --
+  // -- E. Meta --
   { id: "last-updated",  group: "Meta",             title: "Terakhir Diperbarui",                span: 1, real: true },
-  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    span: 1, real: true },
+  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    span: 1, real: false },
 ];
 
 const DEFAULTS = {};
 CARD_DEFS.forEach(c => { DEFAULTS[c.id] = { visible: true, span: c.span }; });
 
 let layout = loadDashboardLayout(DEFAULTS);
+
+// ---- Urutan card manual (drag pakai tombol atas/bawah di panel Settings) ----
+const ORDER_KEY = "mayoritas_dashboard_order_v1";
+function loadOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]");
+    const known = new Set(CARD_DEFS.map(d => d.id));
+    const cleaned = saved.filter(id => known.has(id));
+    CARD_DEFS.forEach(d => { if (!cleaned.includes(d.id)) cleaned.push(d.id); });
+    return cleaned;
+  } catch (e) { return CARD_DEFS.map(d => d.id); }
+}
+function saveOrder(order) {
+  localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+}
+let cardOrder = loadOrder();
+function orderedDefs() {
+  const byId = Object.fromEntries(CARD_DEFS.map(d => [d.id, d]));
+  return cardOrder.map(id => byId[id]).filter(Boolean);
+}
+function moveCard(id, dir) {
+  const i = cardOrder.indexOf(id);
+  const j = i + dir;
+  if (j < 0 || j >= cardOrder.length) return;
+  [cardOrder[i], cardOrder[j]] = [cardOrder[j], cardOrder[i]];
+  saveOrder(cardOrder);
+  renderDashboard();
+  renderSettings();
+  populateRealCards();
+}
 
 const dashGrid = document.getElementById("dashGrid");
 const settingsOverlay = document.getElementById("settingsOverlay");
@@ -87,7 +110,7 @@ function effectiveSpan(span) {
 
 function renderDashboard() {
   dashGrid.innerHTML = "";
-  CARD_DEFS.forEach(def => {
+  orderedDefs().forEach(def => {
     const state = layout[def.id];
     if (!state.visible) return;
     const card = document.createElement("div");
@@ -103,21 +126,17 @@ function renderDashboard() {
 
 function renderSettings() {
   settingsList.innerHTML = "";
-  let currentGroup = null;
-  CARD_DEFS.forEach(def => {
-    if (def.group !== currentGroup) {
-      currentGroup = def.group;
-      const h = document.createElement("div");
-      h.style.cssText = "font-size:11px;font-weight:600;color:var(--text-muted);margin-top:12px;text-transform:uppercase;";
-      h.textContent = currentGroup;
-      settingsList.appendChild(h);
-    }
+  orderedDefs().forEach((def, idx) => {
     const state = layout[def.id];
     const row = document.createElement("div");
     row.className = "settings-row";
     row.innerHTML = `
       <label class="row-label"><input type="checkbox" data-id="${def.id}" class="vis-toggle" ${state.visible ? "checked" : ""}> ${def.title}</label>
-      <input type="range" min="1" max="4" value="${state.span}" data-id="${def.id}" class="span-slider">
+      <div class="row-controls">
+        <input type="range" min="1" max="4" value="${state.span}" data-id="${def.id}" class="span-slider">
+        <button class="move-btn" data-id="${def.id}" data-dir="-1" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button class="move-btn" data-id="${def.id}" data-dir="1" ${idx === cardOrder.length - 1 ? "disabled" : ""}>↓</button>
+      </div>
     `;
     settingsList.appendChild(row);
   });
@@ -138,6 +157,9 @@ function renderSettings() {
       populateRealCards();
     });
   });
+  settingsList.querySelectorAll(".move-btn").forEach(el => {
+    el.addEventListener("click", () => moveCard(el.dataset.id, parseInt(el.dataset.dir, 10)));
+  });
 }
 
 document.getElementById("settingsBtn").addEventListener("click", () => {
@@ -149,7 +171,9 @@ settingsOverlay.addEventListener("click", (e) => {
 });
 document.getElementById("resetLayoutBtn").addEventListener("click", () => {
   resetDashboardLayout();
+  localStorage.removeItem(ORDER_KEY);
   layout = loadDashboardLayout(DEFAULTS);
+  cardOrder = loadOrder();
   renderDashboard();
   renderSettings();
   populateRealCards();
@@ -225,34 +249,6 @@ async function populateRealCards() {
     setCardBody("last-updated", `<div>${hh}:${mm} WIB</div>`);
   }
 
-  // -- Watchlist grouping: pakai data teknikal watchlist yang sama seperti tab Charts/Screener --
-  const wlVisible = ["wl-bullish", "wl-bearish", "wl-mixed", "wl-newcross"].some(id => layout[id].visible);
-  if (wlVisible) {
-    const stockData = await loadAllStocks(TICKERS, null, null);
-    const bullish = [], bearish = [], mixed = [], newCross = [];
-    Object.values(stockData).forEach(d => {
-      if (!d.ok || d.ma50 == null || d.ma200 == null) return;
-      if (d.lastClose > d.ma50 && d.ma50 > d.ma200) bullish.push(d.ticker);
-      else if (d.lastClose < d.ma50 && d.ma50 < d.ma200) bearish.push(d.ticker);
-      else mixed.push(d.ticker);
-
-      // Deteksi cross MA50/MA200 di 2 titik terakhir series MA
-      const s50 = d.ma[50], s200 = d.ma[200];
-      if (s50 && s200 && s50.length > 1 && s200.length > 1) {
-        const diffNow = s50[s50.length - 1].value - s200[s200.length - 1].value;
-        const diffPrev = s50[s50.length - 2].value - s200[s200.length - 2].value;
-        if (diffPrev < 0 && diffNow > 0) newCross.push(`${d.ticker} (Golden Cross)`);
-        if (diffPrev > 0 && diffNow < 0) newCross.push(`${d.ticker} (Death Cross)`);
-      }
-    });
-
-    const listOrDash = (arr) => arr.length ? arr.join(", ") : `<span class="placeholder-note">Tidak ada</span>`;
-    if (layout["wl-bullish"].visible) setCardBody("wl-bullish", listOrDash(bullish));
-    if (layout["wl-bearish"].visible) setCardBody("wl-bearish", listOrDash(bearish));
-    if (layout["wl-mixed"].visible) setCardBody("wl-mixed", listOrDash(mixed));
-    if (layout["wl-newcross"].visible) setCardBody("wl-newcross", listOrDash(newCross));
-  }
-
   populateNews();
 }
 
@@ -261,10 +257,12 @@ async function populateNews() {
   const res = await fetch("/.netlify/functions/news").then(r => r.json()).catch(() => null);
   if (!res || res.status !== "ok") return;
   Object.entries(map).forEach(([cardId, cat]) => {
-    if (!layout[cardId].visible) return;
+    if (!layout[cardId] || !layout[cardId].visible) return;
     const items = res.categories[cat] || [];
     setCardBody(cardId, items.length
-      ? items.slice(0, 5).map(n => `<div style="padding:2px 0"><a href="${n.link}" target="_blank" style="color:inherit">${n.title}</a></div>`).join("")
+      ? items.slice(0, 5).map(n =>
+          `<div class="news-item"><a href="${n.link}" target="_blank" rel="noopener">${n.title}</a></div>`
+        ).join("")
       : `<span class="placeholder-note">Tidak ada data</span>`);
   });
 }
