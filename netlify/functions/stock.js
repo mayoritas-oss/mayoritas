@@ -17,7 +17,10 @@ exports.handler = async (event) => {
     };
   }
 
-  const yahooSymbol = `${symbol}.JK`;
+  // Simbol IDX (BBCA, dst) perlu suffix .JK. Simbol global Yahoo (^JKSE, ^GSPC,
+  // GC=F, IDR=X, ^TNX, dst) sudah lengkap apa adanya -> jangan ditambah .JK.
+  const isRawYahooSymbol = /^\^|=F$|=X$/.test(symbol);
+  const yahooSymbol = isRawYahooSymbol ? symbol : `${symbol}.JK`;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=2y&interval=1d`;
 
   try {
