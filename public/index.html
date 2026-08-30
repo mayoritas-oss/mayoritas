@@ -55,18 +55,18 @@ const CARD_DEFS = [
   { id: "wl-newcross",   group: "Watchlist Insight", title: "Cross Terbaru (Golden/Death)",       span: 1, real: true },
 
   // -- D. News --
-  { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 span: 2, real: false },
-  { id: "news-global",   group: "News",             title: "Headline Global / US",               span: 2, real: false },
-  { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 span: 2, real: false },
-  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             span: 2, real: false },
+  { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 span: 2, real: true },
+  { id: "news-global",   group: "News",             title: "Headline Global / US",               span: 2, real: true },
+  { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 span: 2, real: true },
+  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             span: 2, real: true },
 
   // -- E. Kalender & Konteks --
-  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 span: 2, real: false },
+  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 span: 2, real: true },
   { id: "market-status", group: "Kalender & Konteks", title: "Status Pasar (IDX & US)",           span: 2, real: true },
 
   // -- F. Meta --
   { id: "last-updated",  group: "Meta",             title: "Terakhir Diperbarui",                span: 1, real: true },
-  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    span: 1, real: false },
+  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    span: 1, real: true },
 ];
 
 const DEFAULTS = {};
@@ -252,6 +252,21 @@ async function populateRealCards() {
     if (layout["wl-mixed"].visible) setCardBody("wl-mixed", listOrDash(mixed));
     if (layout["wl-newcross"].visible) setCardBody("wl-newcross", listOrDash(newCross));
   }
+
+  populateNews();
+}
+
+async function populateNews() {
+  const map = { "news-indo": "indonesia", "news-global": "global", "news-commodity": "commodity" };
+  const res = await fetch("/.netlify/functions/news").then(r => r.json()).catch(() => null);
+  if (!res || res.status !== "ok") return;
+  Object.entries(map).forEach(([cardId, cat]) => {
+    if (!layout[cardId].visible) return;
+    const items = res.categories[cat] || [];
+    setCardBody(cardId, items.length
+      ? items.slice(0, 5).map(n => `<div style="padding:2px 0"><a href="${n.link}" target="_blank" style="color:inherit">${n.title}</a></div>`).join("")
+      : `<span class="placeholder-note">Tidak ada data</span>`);
+  });
 }
 
 startLiveClock(document.getElementById("liveClock"));
