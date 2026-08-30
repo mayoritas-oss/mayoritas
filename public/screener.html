@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>MayoRitas™ — Screener</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="top-nav">
+  <span class="brand">MayoRitas™</span>
+  <a href="index.html">Home</a>
+  <a href="charts.html">Charts</a>
+  <a href="screener.html" class="active">Screener</a>
+</div>
+
+<div class="page-body">
+<div class="header-row">
+  <div class="filter-controls">
+    <span class="status-text" id="statusText">Data belum dimuat</span>
+  </div>
+  <div class="controls">
+    <label class="grid-size-label">Rows: </label>
+    <select id="pageSizeSelect">
+      <option value="10">10</option>
+      <option value="20" selected>20</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+    </select>
+  </div>
+</div>
+
+<div class="screener-table-wrap">
+  <table class="screener-table" id="screenerTable">
+    <thead>
+      <tr>
+        <th data-key="ticker">Ticker</th>
+        <th data-key="lastClose">Price</th>
+        <th data-key="chgPct">Chg %</th>
+        <th data-key="rsi">RSI14</th>
+        <th data-key="ma50">MA50</th>
+        <th data-key="ma200">MA200</th>
+        <th data-key="vsMa50">Price/MA50</th>
+        <th data-key="vsMa200">Price/MA200</th>
+        <th data-key="trend">Trend</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<div class="pagination">
+  <button id="prevBtn">‹ Prev</button>
+  <span id="pageInfo"></span>
+  <button id="nextBtn">Next ›</button>
+</div>
+</div>
+
+<script src="js/shared.js"></script>
+<script>
+const tableBody = document.getElementById("tableBody");
+const statusText = document.getElementById("statusText");
+const pageSizeSelect = document.getElementById("pageSizeSelect");
+const prevBtn = document.getElementById("prevBtn");
+const nextBtn = document.getElementById("nextBtn");
+const pageInfo = document.getElementById("pageInfo");
+
+let rows = [];       // hasil olahan per ticker, siap disort/ditabelkan
+let sortKey = "ticker";
+let sortAsc = true;
+let page = 1;
+
+function buildRow(d) {
+  if (!d.ok) return { ticker: d.ticker, ok: false };
+  const prevClose = d.candles.length > 1 ? d.candles[d.candles.length - 2].close : null;
+  const chgPct = prevClose ? ((d.lastClose - prevClose) / prevClose) * 100 : null;
+  const lastRsi = d.rsi && d.rsi.length ? d.rsi[d.rsi.length - 1].value : null;
+  const vsMa50 = d.ma50 ? d.lastClose / d.ma50 : null;
+  const vsMa200 = d.ma200 ? d.lastClose / d.ma200 : null;
+  let trend = "-";
+  if (d.ma50 != null && d.ma200 != null) {
+    trend = d.lastClose > d.ma50 && d.ma50 > d.ma200 ? "Bullish"
+      : d.lastClose < d.ma50 && d.ma50 < d.ma200 ? "Bearish" : "Mixed";
+  }
+  return { ticker: d.ticker, ok: true, lastClose: d.lastClose, chgPct, rsi: lastRsi,
+    ma50: d.ma50, ma200: d.ma200, vsMa50, vsMa200, trend };
+}
+
+function fmt(v, digits = 2) {
+  return v == null || isNaN(v) ? "-" : v.toFixed(digits);
+}
+
+function render() {
+  const sorted = [...rows].filter(r => r.ok).sort((a, b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === "string") return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    return sortAsc ? av - bv : bv - av;
+  });
+
+  const pageSize = parseInt(pageSizeSelect.value, 10);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  if (page > totalPages) page = totalPages;
+  const start = (page - 1) * pageSize;
+  const pageRows = sorted.slice(start, start + pageSize);
+
+  tableBody.innerHTML = pageRows.map(r => `
+    <tr>
+      <td>${r.ticker}</td>
+      <td>${fmtPrice(r.lastClose)}</td>
+      <td>${fmt(r.chgPct)}</td>
+      <td>${fmt(r.rsi, 1)}</td>
+      <td>${fmtPrice(r.ma50)}</td>
+      <td>${fmtPrice(r.ma200)}</td>
+      <td>${fmt(r.vsMa50)}</td>
+      <td>${fmt(r.vsMa200)}</td>
+      <td>${r.trend}</td>
+    </tr>
+  `).join("");
+
+  pageInfo.textContent = `Halaman ${page} / ${totalPages} (${sorted.length} saham)`;
+  prevBtn.disabled = page <= 1;
+  nextBtn.disabled = page >= totalPages;
+
+  document.querySelectorAll("#screenerTable th").forEach(th => {
+    th.classList.toggle("sorted", th.dataset.key === sortKey);
+    th.classList.toggle("asc", th.dataset.key === sortKey && sortAsc);
+  });
+}
+
+document.querySelectorAll("#screenerTable th").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.key;
+    if (sortKey === key) sortAsc = !sortAsc; else { sortKey = key; sortAsc = true; }
+    render();
+  });
+});
+
+pageSizeSelect.addEventListener("change", () => { page = 1; render(); });
+prevBtn.addEventListener("click", () => { page--; render(); });
+nextBtn.addEventListener("click", () => { page++; render(); });
+
+(async () => {
+  statusText.textContent = "Memuat data...";
+  const stockData = await loadAllStocks(TICKERS, null, (done, total) => {
+    if (total > 0) statusText.textContent = `Memuat data baru... (${done}/${total})`;
+  });
+  rows = Object.values(stockData).map(buildRow);
+  const okCount = rows.filter(r => r.ok).length;
+  statusText.textContent = `${okCount} / ${TICKERS.length} saham`;
+  render();
+})();
+</script>
+</body>
+</html>

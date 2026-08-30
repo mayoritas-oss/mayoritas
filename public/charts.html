@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>MayoRitas™ — Charts</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://unpkg.com/lightweight-charts@5.0.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+<div class="top-nav">
+  <span class="brand">MayoRitas™</span>
+  <a href="index.html">Home</a>
+  <a href="charts.html" class="active">Charts</a>
+  <a href="screener.html">Screener</a>
+</div>
+
+<div class="page-body">
+<div class="header-row">
+  <div class="controls">
+    <span class="grid-size-label">Column: <span id="colVal">4</span></span>
+    <input type="range" id="colSlider" min="2" max="6" value="4">
+  </div>
+  <div class="filter-controls">
+    <select id="filterPreset">
+      <option value="none" selected>All</option>
+      <option value="above_ma50">Price > MA50</option>
+      <option value="below_ma50">Price &lt; MA50</option>
+    </select>
+    <button class="action-btn" id="applyBtn">Apply</button>
+    <span class="status-text" id="statusText">Data belum dimuat</span>
+  </div>
+</div>
+
+<div class="grid" id="grid"></div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="modalTitle"></span>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-chart" id="modalChart"></div>
+  </div>
+</div>
+
+<script src="js/shared.js"></script>
+<script>
+const grid = document.getElementById("grid");
+const colSlider = document.getElementById("colSlider");
+const colVal = document.getElementById("colVal");
+const filterPreset = document.getElementById("filterPreset");
+const applyBtn = document.getElementById("applyBtn");
+const statusText = document.getElementById("statusText");
+const modalOverlay = document.getElementById("modalOverlay");
+const modalTitle = document.getElementById("modalTitle");
+const modalChartEl = document.getElementById("modalChart");
+const modalClose = document.getElementById("modalClose");
+
+function getDefaultCols() {
+  const isMobile = window.matchMedia("(max-width: 900px)").matches;
+  if (isMobile) return 4;
+  return 5; // default desktop
+}
+const defaultCols = getDefaultCols();
+colSlider.value = defaultCols;
+colVal.textContent = defaultCols;
+
+let stockData = {};
+let visibleTickers = [...TICKERS];
+let chartInstances = {};
+
+function passesFilter(ticker, mode) {
+  if (mode === "none") return true;
+  const d = stockData[ticker];
+  if (!d || !d.ok) return false;
+  switch (mode) {
+    case "above_ma50": return d.ma50 != null && d.lastClose > d.ma50;
+    case "below_ma50": return d.ma50 != null && d.lastClose < d.ma50;
+    default: return true;
+  }
+}
+
+// ---- Box dibikin murah dulu (cuma DOM), chart asli dibuat pas kelihatan layar ----
+const mountObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      mountChart(entry.target.dataset.symbol, entry.target);
+      mountObserver.unobserve(entry.target);
+    }
+  });
+}, { rootMargin: "600px 0px" });
+
+function renderOne(symbol) {
+  const box = document.createElement("div");
+  box.className = "chart-box";
+  box.dataset.symbol = symbol;
+
+  const label = document.createElement("div");
+  label.className = "ticker-label";
+  const d = stockData[symbol];
+  label.innerHTML = `<span>${symbol}</span><span class="price-tag">${d && d.ok ? fmtPrice(d.lastClose) : "…"}</span>`;
+  box.appendChild(label);
+
+  const canvasWrap = document.createElement("div");
+  canvasWrap.className = "chart-canvas";
+  canvasWrap.textContent = "Memuat…";
+  box.appendChild(canvasWrap);
+  // Catatan: legenda MA & label harga-per-MA sengaja dihilangkan dari mini chart (noise di ukuran kecil).
+  // Muncul lagi di modal (klik chart) lewat lastValueVisible pada MA series.
+
+  box.addEventListener("click", () => openFullChart(symbol));
+  grid.appendChild(box);
+  mountObserver.observe(box);
+}
+
+function mountChart(symbol, box) {
+  const canvasWrap = box.querySelector(".chart-canvas");
+  canvasWrap.textContent = "";
+
+  const chart = LightweightCharts.createChart(canvasWrap, {
+    layout: { textColor: "#333", background: { type: "solid", color: "#ffffff" } },
+    grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
+    timeScale: { borderColor: "#ddd", timeVisible: false, rightOffset: 0, fixLeftEdge: true, fixRightEdge: true },
+    rightPriceScale: { borderColor: "#ddd" },
+    localization: { priceFormatter: p => fmtPrice(p) },
+    handleScroll: false,
+    handleScale: false,
+    attributionLogo: false
+  });
+
+  const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+    upColor: "#26a69a", downColor: "#ef5350", borderVisible: false,
+    wickUpColor: "#26a69a", wickDownColor: "#ef5350"
+  });
+
+  const maSeries = {};
+  MA_PERIODS.forEach(p => {
+    // lastValueVisible: false di mini chart -> hilangkan label angka MA yang penuhin tempat
+    maSeries[p] = chart.addSeries(LightweightCharts.LineSeries, {
+      color: MA_COLORS[p], lineWidth: 1, priceLineVisible: false, lastValueVisible: false
+    });
+  });
+
+  new ResizeObserver(() => {
+    chart.applyOptions({ width: canvasWrap.clientWidth, height: canvasWrap.clientHeight });
+    chart.timeScale().fitContent();
+  }).observe(canvasWrap);
+
+  chartInstances[symbol] = { chart, candleSeries, maSeries, box };
+  populateChart(symbol);
+}
+
+function populateChart(symbol) {
+  const inst = chartInstances[symbol];
+  const d = stockData[symbol];
+  if (!inst || !d) return;
+
+  const label = inst.box.querySelector(".price-tag");
+  if (label) label.textContent = d.ok ? fmtPrice(d.lastClose) : "…";
+  if (!d.ok) return;
+
+  const currentYear = new Date().getFullYear();
+  const ytdStart = `${currentYear}-01-01`;
+  const ytdCandles = d.candles.filter(c => c.time >= ytdStart);
+  const displayCandles = ytdCandles.length > 10 ? ytdCandles : d.candles.slice(-180);
+
+  inst.candleSeries.setData(displayCandles);
+  const minTime = displayCandles[0].time;
+  MA_PERIODS.forEach(p => {
+    inst.maSeries[p].setData(d.ma[p].filter(pt => pt.time >= minTime));
+  });
+  inst.chart.timeScale().fitContent();
+}
+
+function renderGrid(list) {
+  grid.innerHTML = "";
+  chartInstances = {};
+  if (list.length === 0) {
+    const msg = document.createElement("div");
+    msg.className = "empty-msg";
+    msg.textContent = "Tidak ada saham yang lolos filter ini.";
+    grid.appendChild(msg);
+    return;
+  }
+  grid.style.gridTemplateColumns = `repeat(${colSlider.value}, 1fr)`;
+  list.forEach(symbol => renderOne(symbol));
+}
+
+colSlider.addEventListener("input", () => {
+  colVal.textContent = colSlider.value;
+  grid.style.gridTemplateColumns = `repeat(${colSlider.value}, 1fr)`;
+});
+
+applyBtn.addEventListener("click", () => {
+  const mode = filterPreset.value;
+  const newVisible = TICKERS.filter(t => passesFilter(t, mode));
+  statusText.textContent = `${newVisible.length} / ${TICKERS.length}`;
+  visibleTickers = newVisible;
+  renderGrid(visibleTickers);
+});
+
+// ---- Modal full-size: history PENUH (bukan cuma YTD), MA label & legend muncul di sini ----
+let modalChart = null;
+let modalCandleSeries = null;
+let modalMaSeries = {};
+
+function openFullChart(symbol) {
+  const d = stockData[symbol];
+  if (!d || !d.ok) return;
+
+  modalTitle.textContent = `${symbol} — ${fmtPrice(d.lastClose)}`;
+  modalOverlay.classList.add("open");
+
+  if (!modalChart) {
+    modalChart = LightweightCharts.createChart(modalChartEl, {
+      layout: { textColor: "#333", background: { type: "solid", color: "#ffffff" } },
+      grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
+      timeScale: { borderColor: "#ddd", timeVisible: false },
+      rightPriceScale: { borderColor: "#ddd" },
+      localization: { priceFormatter: p => fmtPrice(p) },
+      handleScroll: true,
+      handleScale: true,
+      attributionLogo: false
+    });
+    modalCandleSeries = modalChart.addSeries(LightweightCharts.CandlestickSeries, {
+      upColor: "#26a69a", downColor: "#ef5350", borderVisible: false,
+      wickUpColor: "#26a69a", wickDownColor: "#ef5350"
+    });
+    MA_PERIODS.forEach(p => {
+      modalMaSeries[p] = modalChart.addSeries(LightweightCharts.LineSeries, {
+        color: MA_COLORS[p], lineWidth: 1, priceLineVisible: false, lastValueVisible: true,
+        title: `MA${p}`
+      });
+    });
+    new ResizeObserver(() => {
+      modalChart.applyOptions({ width: modalChartEl.clientWidth, height: modalChartEl.clientHeight });
+    }).observe(modalChartEl);
+  }
+
+  // full history, bukan potongan YTD -> scroll/hover ke belakang nggak kepotong
+  modalCandleSeries.setData(d.candles);
+  MA_PERIODS.forEach(p => {
+    modalMaSeries[p].setData(d.ma[p]);
+  });
+  modalChart.timeScale().fitContent();
+}
+
+modalClose.addEventListener("click", () => modalOverlay.classList.remove("open"));
+modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove("open"); });
+
+(async () => {
+  renderGrid(visibleTickers);
+  statusText.textContent = "Memuat data...";
+  applyBtn.disabled = true;
+  await loadAllStocks(TICKERS, (r) => {
+    stockData[r.ticker] = r;
+    populateChart(r.ticker);
+  }, (done, total) => {
+    if (total > 0) statusText.textContent = `Memuat data baru... (${done}/${total})`;
+  });
+  const okCount = Object.values(stockData).filter(d => d.ok).length;
+  const failCount = Object.values(stockData).filter(d => !d.ok).length;
+  statusText.textContent = `${okCount} dimuat` + (failCount ? `, ${failCount} gagal` : "");
+  applyBtn.disabled = false;
+})();
+</script>
+</body>
+</html>
