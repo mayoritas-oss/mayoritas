@@ -41,7 +41,10 @@
     font-size: 13px;
   }
   input[type="range"] {
-    width: 140px;
+    width: 80px;
+  }
+  #filterPreset {
+    max-width: 150px;
   }
   select, button.action-btn {
     font-size: 13px;
@@ -126,6 +129,45 @@
     padding: 40px;
     font-size: 14px;
   }
+    .chart-box { cursor: pointer; }
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: #fff;
+    border-radius: 8px;
+    width: min(1100px, 100%);
+    height: min(720px, 90vh);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid #eee;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .modal-close {
+    cursor: pointer;
+    border: none;
+    background: none;
+    font-size: 20px;
+    color: #666;
+    line-height: 1;
+  }
+  .modal-chart { flex: 1; min-height: 0; }
 </style>
 </head>
 <body>
@@ -133,22 +175,37 @@
 <div class="header-row">
   <h1>MayoRitas™</h1>
   <div class="controls">
-    <span class="grid-size-label">Kolom: <span id="colVal">4</span></span>
+    <span class="grid-size-label">Column: <span id="colVal">4</span></span>
     <input type="range" id="colSlider" min="2" max="5" value="4">
   </div>
   <div class="filter-controls">
     <select id="filterPreset">
-      <option value="none">Tanpa filter</option>
-      <option value="above_ma50" selected>Harga di atas MA50</option>
-      <option value="below_ma50">Harga di bawah MA50</option>
+      <option value="none" selected>All</option>
+      <option value="above_ma50">Price > MA50</option>
+      <option value="below_ma50">Price "<" MA50</option>
+      <option value="below_ma50">Price > All MA</option>
+      <option value="below_ma50">Price "<" All MA</option>
+      <option value="below_ma50">Bigcap</option>
+      <option value="below_ma50">Midcap</option>
+      <option value="below_ma50">Smallcap</option>
+      <option value="below_ma50">Technology</option>
+      <option value="below_ma50">Financial</option>
     </select>
-    <button class="action-btn" id="applyBtn">Terapkan filter</button>
+    <button class="action-btn" id="applyBtn">Apply</button>
     <span class="status-text" id="statusText">Data belum dimuat</span>
   </div>
 </div>
 
 <div class="grid" id="grid"></div>
-
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="modalTitle"></span>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-chart" id="modalChart"></div>
+  </div>
+</div>
 <script>
 // ====== EDIT DI SINI SAJA — tambah/hapus ticker di array ini ======
 const tickers = [
@@ -171,12 +228,24 @@ const colVal = document.getElementById("colVal");
 const filterPreset = document.getElementById("filterPreset");
 const applyBtn = document.getElementById("applyBtn");
 const statusText = document.getElementById("statusText");
+const modalOverlay = document.getElementById("modalOverlay");
+const modalTitle = document.getElementById("modalTitle");
+const modalChartEl = document.getElementById("modalChart");
+const modalClose = document.getElementById("modalClose");
 
-let stockData = {};    // { BBCA: { candles: [...], ma: {10:[...],20:[...],...}, lastClose, ma50, ok } }
+function getDefaultCols() {
+  const isMobile = window.matchMedia("(max-width: 900px)").matches;
+  const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+  if (isMobile && isLandscape) return 3;
+  return 4;
+}
+const defaultCols = getDefaultCols();
+colSlider.value = defaultCols;
+colVal.textContent = defaultCols;
+
+let stockData = {};      // { BBCA: { candles, ma, lastClose, ma50, ma200, ok } }
 let visibleTickers = [...tickers];
-let chartInstances = {}; // { BBCA: chartApi } — supaya bisa resize tanpa recreate
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+let chartInstances = {}; // { BBCA: { chart, candleSeries, maSeries, box } }
 
 // ---- CACHE (localStorage, TTL 6 jam) ----
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -213,7 +282,6 @@ function sma(closes, period, endIndex) {
   return sum / period;
 }
 
-// Hitung SMA sebagai deret waktu penuh (bukan cuma titik terakhir), untuk digambar sebagai garis
 function smaSeries(candles, period) {
   const out = [];
   for (let i = period - 1; i < candles.length; i++) {
@@ -224,7 +292,7 @@ function smaSeries(candles, period) {
   return out;
 }
 
-// ---- DATA LAYER: Twelve Data via server-side proxy (API key never reaches browser) ----
+// ---- DATA LAYER: Yahoo Finance via server-side proxy ----
 async function fetchStock(ticker) {
   const url = `/.netlify/functions/stock?symbol=${ticker}`;
   try {
@@ -232,12 +300,11 @@ async function fetchStock(ticker) {
     if (!res.ok) throw new Error("HTTP " + res.status);
     const json = await res.json();
     if (json.status === "error") throw new Error(json.message || "API error");
-    if (!json.values || json.values.length < 200) throw new Error("data historis kurang dari 200 hari");
+    if (!json.values || json.values.length < 15) throw new Error("data historis kurang dari 15 hari");
 
-    // Twelve Data balikin urutan terbaru dulu -> balik jadi kronologis untuk chart
     const candles = json.values
       .map(v => ({
-        time: v.datetime, // "YYYY-MM-DD", format yang diterima Lightweight Charts
+        time: v.datetime,
         open: parseFloat(v.open),
         high: parseFloat(v.high),
         low: parseFloat(v.low),
@@ -265,6 +332,7 @@ async function fetchStock(ticker) {
   }
 }
 
+// ---- Fetch pool paralel (ganti serial + sleep) ----
 async function loadAllData() {
   statusText.textContent = "Memuat data...";
   applyBtn.disabled = true;
@@ -272,31 +340,37 @@ async function loadAllData() {
   const cached = loadCache();
   const toFetch = tickers.filter(t => !cached[t]);
 
-  Object.entries(cached).forEach(([ticker, data]) => { stockData[ticker] = data; });
+  Object.entries(cached).forEach(([ticker, data]) => {
+    stockData[ticker] = data;
+    populateChart(ticker);
+  });
 
   let okCount = Object.values(stockData).filter(d => d.ok).length;
   let failCount = Object.values(stockData).filter(d => !d.ok).length;
+  let done = 0;
 
   if (toFetch.length > 0) {
     statusText.textContent = `Memuat data baru untuk ${toFetch.length} saham (cache: ${tickers.length - toFetch.length})...`;
   }
 
-  for (let i = 0; i < toFetch.length; i++) {
-    const t = toFetch[i];
-    const r = await fetchStock(t);
-    stockData[r.ticker] = r;
-    saveCacheEntry(r.ticker, r);
-    if (r.ok) okCount++; else failCount++;
-    console.log("[mayoritas]", r.ticker, r.ok ? "OK" : "GAGAL: " + r.error, r);
-    statusText.textContent = `Memuat data baru... (${i + 1}/${toFetch.length})`;
-    if (i < toFetch.length - 1) await sleep(1200); // jeda kecil, jaga-jaga biar nggak keblokir Yahoo
+  const CONCURRENCY = 6; // naikkan/turunkan kalau Yahoo mulai nge-block (429/403)
+  let cursor = 0;
+  async function worker() {
+    while (cursor < toFetch.length) {
+      const t = toFetch[cursor++];
+      const r = await fetchStock(t);
+      stockData[r.ticker] = r;
+      saveCacheEntry(r.ticker, r);
+      if (r.ok) okCount++; else failCount++;
+      done++;
+      statusText.textContent = `Memuat data baru... (${done}/${toFetch.length})`;
+      populateChart(r.ticker); // isi chart yang udah ke-mount begitu datanya siap
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toFetch.length || 1) }, worker));
 
   statusText.textContent = `Data siap: ${okCount} sukses` + (failCount ? `, ${failCount} gagal` : "");
   applyBtn.disabled = false;
-
-  // Refresh chart yang sudah tampil supaya candle+MA muncul begitu data datang
-  renderGrid(visibleTickers);
 }
 
 function passesFilter(ticker, mode) {
@@ -304,15 +378,26 @@ function passesFilter(ticker, mode) {
   const d = stockData[ticker];
   if (!d || !d.ok) return false;
   switch (mode) {
-    case "above_ma50": return d.lastClose > d.ma50;
-    case "below_ma50": return d.lastClose < d.ma50;
+    case "above_ma50": return d.ma50 != null && d.lastClose > d.ma50;
+    case "below_ma50": return d.ma50 != null && d.lastClose < d.ma50;
     default: return true;
   }
 }
 
+// ---- Box dibikin murah dulu (cuma DOM), chart asli dibuat pas kelihatan layar ----
+const mountObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      mountChart(entry.target.dataset.symbol, entry.target);
+      mountObserver.unobserve(entry.target);
+    }
+  });
+}, { rootMargin: "600px 0px" }); // mulai mount 600px sebelum masuk viewport, biar nggak keliatan nge-lag
+
 function renderOne(symbol) {
   const box = document.createElement("div");
   box.className = "chart-box";
+  box.dataset.symbol = symbol;
 
   const label = document.createElement("div");
   label.className = "ticker-label";
@@ -323,6 +408,7 @@ function renderOne(symbol) {
 
   const canvasWrap = document.createElement("div");
   canvasWrap.className = "chart-canvas";
+  canvasWrap.textContent = "Memuat…";
   box.appendChild(canvasWrap);
 
   const legend = document.createElement("div");
@@ -332,55 +418,68 @@ function renderOne(symbol) {
   });
   box.appendChild(legend);
 
+  box.addEventListener("click", () => openFullChart(symbol));
   grid.appendChild(box);
+  mountObserver.observe(box);
+}
+
+function mountChart(symbol, box) {
+  const canvasWrap = box.querySelector(".chart-canvas");
+  canvasWrap.textContent = "";
 
   const chart = LightweightCharts.createChart(canvasWrap, {
     layout: { textColor: "#333", background: { type: "solid", color: "#ffffff" } },
     grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
-    timeScale: { borderColor: "#ddd", timeVisible: false },
+    timeScale: { borderColor: "#ddd", timeVisible: false, rightOffset: 0, fixLeftEdge: true, fixRightEdge: true },
     rightPriceScale: { borderColor: "#ddd" },
+    localization: { priceFormatter: p => Math.round(p).toLocaleString("id-ID") },
     handleScroll: false,
     handleScale: false,
     attributionLogo: false
   });
 
   const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-    upColor: "#26a69a",
-    downColor: "#ef5350",
-    borderVisible: false,
-    wickUpColor: "#26a69a",
-    wickDownColor: "#ef5350"
+    upColor: "#26a69a", downColor: "#ef5350", borderVisible: false,
+    wickUpColor: "#26a69a", wickDownColor: "#ef5350"
   });
 
-  chartInstances[symbol] = chart;
-
-  if (d && d.ok) {
-    // Filter candle mulai dari 1 Januari tahun berjalan (YTD)
-    const currentYear = new Date().getFullYear();
-    const ytdStart = `${currentYear}-01-01`;
-    const ytdCandles = d.candles.filter(c => c.time >= ytdStart);
-    const displayCandles = ytdCandles.length > 10 ? ytdCandles : d.candles.slice(-180); // fallback kalau YTD kepotong data
-
-    candleSeries.setData(displayCandles);
-
-    const minTime = displayCandles[0].time;
-    [10, 20, 50, 100, 200].forEach(p => {
-      const maSeries = chart.addSeries(LightweightCharts.LineSeries, {
-        color: MA_COLORS[p],
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false
-      });
-      const maData = d.ma[p].filter(pt => pt.time >= minTime);
-      maSeries.setData(maData);
+  const maSeries = {};
+  [10, 20, 50, 100, 200].forEach(p => {
+    maSeries[p] = chart.addSeries(LightweightCharts.LineSeries, {
+      color: MA_COLORS[p], lineWidth: 1, priceLineVisible: false, lastValueVisible: true
     });
-
-    chart.timeScale().fitContent();
-  }
+  });
 
   new ResizeObserver(() => {
     chart.applyOptions({ width: canvasWrap.clientWidth, height: canvasWrap.clientHeight });
+    chart.timeScale().fitContent();
   }).observe(canvasWrap);
+
+  chartInstances[symbol] = { chart, candleSeries, maSeries, box };
+  populateChart(symbol);
+}
+
+// ---- Isi/refresh data ke chart yang sudah ke-mount ----
+function populateChart(symbol) {
+  const inst = chartInstances[symbol];
+  const d = stockData[symbol];
+  if (!inst || !d) return;
+
+  const label = inst.box.querySelector(".price-tag");
+  if (label) label.textContent = d.ok ? d.lastClose.toLocaleString("id-ID") : "…";
+  if (!d.ok) return;
+
+  const currentYear = new Date().getFullYear();
+  const ytdStart = `${currentYear}-01-01`;
+  const ytdCandles = d.candles.filter(c => c.time >= ytdStart);
+  const displayCandles = ytdCandles.length > 10 ? ytdCandles : d.candles.slice(-180);
+
+  inst.candleSeries.setData(displayCandles);
+  const minTime = displayCandles[0].time;
+  [10, 20, 50, 100, 200].forEach(p => {
+    inst.maSeries[p].setData(d.ma[p].filter(pt => pt.time >= minTime));
+  });
+  inst.chart.timeScale().fitContent();
 }
 
 function renderGrid(list) {
@@ -400,7 +499,6 @@ function renderGrid(list) {
 colSlider.addEventListener("input", () => {
   colVal.textContent = colSlider.value;
   grid.style.gridTemplateColumns = `repeat(${colSlider.value}, 1fr)`;
-  // ResizeObserver per chart otomatis handle resize kanvas, tidak perlu recreate chart
 });
 
 applyBtn.addEventListener("click", () => {
@@ -413,6 +511,58 @@ applyBtn.addEventListener("click", () => {
   visibleTickers = newVisible;
   renderGrid(visibleTickers);
 });
+
+// ---- Modal full-size: 1 chart instance dipakai ulang, data dari memori (instan) ----
+let modalChart = null;
+let modalCandleSeries = null;
+let modalMaSeries = {};
+
+function openFullChart(symbol) {
+  const d = stockData[symbol];
+  if (!d || !d.ok) return;
+
+  modalTitle.textContent = `${symbol} — ${d.lastClose.toLocaleString("id-ID")}`;
+  modalOverlay.classList.add("open");
+
+  if (!modalChart) {
+    modalChart = LightweightCharts.createChart(modalChartEl, {
+      layout: { textColor: "#333", background: { type: "solid", color: "#ffffff" } },
+      grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
+      timeScale: { borderColor: "#ddd", timeVisible: false },
+      rightPriceScale: { borderColor: "#ddd" },
+      localization: { priceFormatter: p => Math.round(p).toLocaleString("id-ID") },
+      handleScroll: true,
+      handleScale: true,
+      attributionLogo: false
+    });
+    modalCandleSeries = modalChart.addSeries(LightweightCharts.CandlestickSeries, {
+      upColor: "#26a69a", downColor: "#ef5350", borderVisible: false,
+      wickUpColor: "#26a69a", wickDownColor: "#ef5350"
+    });
+    [10, 20, 50, 100, 200].forEach(p => {
+      modalMaSeries[p] = modalChart.addSeries(LightweightCharts.LineSeries, {
+        color: MA_COLORS[p], lineWidth: 1, priceLineVisible: false, lastValueVisible: true
+      });
+    });
+    new ResizeObserver(() => {
+      modalChart.applyOptions({ width: modalChartEl.clientWidth, height: modalChartEl.clientHeight });
+    }).observe(modalChartEl);
+  }
+
+  const currentYear = new Date().getFullYear();
+  const ytdStart = `${currentYear}-01-01`;
+  const ytdCandles = d.candles.filter(c => c.time >= ytdStart);
+  const displayCandles = ytdCandles.length > 10 ? ytdCandles : d.candles.slice(-180);
+  modalCandleSeries.setData(displayCandles);
+  const minTime = displayCandles[0].time;
+  [10, 20, 50, 100, 200].forEach(p => {
+    modalMaSeries[p].setData(d.ma[p].filter(pt => pt.time >= minTime));
+  });
+  modalChart.timeScale().fitContent();
+}
+
+modalClose.addEventListener("click", () => modalOverlay.classList.remove("open"));
+modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove("open"); });
 
 (async () => {
   renderGrid(tickers);
