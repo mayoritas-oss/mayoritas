@@ -12,11 +12,253 @@
   <a href="index.html" class="active">Home</a>
   <a href="charts.html">Charts</a>
   <a href="screener.html">Screener</a>
+  <span class="nav-spacer"></span>
+  <span class="live-clock" id="liveClock"></span>
+  <button class="icon-btn" id="themeToggle" title="Toggle dark/light">◐</button>
+  <button class="icon-btn" id="settingsBtn" title="Atur tampilan dashboard">⚙</button>
 </div>
 
 <div class="page-body">
-  <div class="empty-home">Dashboard — belum diisi. Nanti berbagai info di sini.</div>
+  <div class="dash-grid" id="dashGrid"></div>
 </div>
 
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-drawer">
+    <h2>Atur Dashboard</h2>
+    <div id="settingsList"></div>
+    <button class="reset-btn" id="resetLayoutBtn">Reset ke default</button>
+  </div>
+</div>
+
+<script src="js/shared.js"></script>
+<script>
+// ====== DEFINISI CARD ======
+// span: 1-4 (lebar relatif di grid desktop 4 kolom; otomatis dipangkas ke maks 2 di mobile)
+// real: true = coba tarik data publik beneran; false = placeholder (sumber data belum diputuskan)
+const CARD_DEFS = [
+  // -- A. Market Pulse --
+  { id: "ihsg-mini",     group: "Market Pulse",     title: "IHSG",                              span: 2, real: true },
+  { id: "breadth",       group: "Market Pulse",     title: "Breadth IDX (Advance/Decline)",      span: 1, real: false },
+  { id: "ma-breadth",    group: "Market Pulse",     title: "Above/Below MA50 & MA200 (IDX)",     span: 1, real: false },
+  { id: "sector-perf",   group: "Market Pulse",     title: "Performa Sektor Hari Ini",           span: 2, real: false },
+
+  // -- B. Global / US Context --
+  { id: "us-indices",    group: "Global Context",   title: "US Indices",                         span: 2, real: true },
+  { id: "usdidr",        group: "Global Context",   title: "USD/IDR",                            span: 1, real: true },
+  { id: "commodities",   group: "Global Context",   title: "Komoditas",                          span: 2, real: true },
+  { id: "yield10y",      group: "Global Context",   title: "US 10Y Treasury Yield",              span: 1, real: true },
+
+  // -- C. Watchlist Insight --
+  { id: "wl-bullish",    group: "Watchlist Insight", title: "Bullish (di atas semua MA)",        span: 1, real: true },
+  { id: "wl-bearish",    group: "Watchlist Insight", title: "Bearish (di bawah semua MA)",        span: 1, real: true },
+  { id: "wl-mixed",      group: "Watchlist Insight", title: "Mixed / Transisi",                  span: 1, real: true },
+  { id: "wl-newcross",   group: "Watchlist Insight", title: "Cross Terbaru (Golden/Death)",       span: 1, real: true },
+
+  // -- D. News --
+  { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 span: 2, real: false },
+  { id: "news-global",   group: "News",             title: "Headline Global / US",               span: 2, real: false },
+  { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 span: 2, real: false },
+  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             span: 2, real: false },
+
+  // -- E. Kalender & Konteks --
+  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 span: 2, real: false },
+  { id: "market-status", group: "Kalender & Konteks", title: "Status Pasar (IDX & US)",           span: 2, real: true },
+
+  // -- F. Meta --
+  { id: "last-updated",  group: "Meta",             title: "Terakhir Diperbarui",                span: 1, real: true },
+  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    span: 1, real: false },
+];
+
+const DEFAULTS = {};
+CARD_DEFS.forEach(c => { DEFAULTS[c.id] = { visible: true, span: c.span }; });
+
+let layout = loadDashboardLayout(DEFAULTS);
+
+const dashGrid = document.getElementById("dashGrid");
+const settingsOverlay = document.getElementById("settingsOverlay");
+const settingsList = document.getElementById("settingsList");
+
+function isMobileNow() {
+  return window.matchMedia("(max-width: 900px)").matches;
+}
+function effectiveSpan(span) {
+  return Math.min(span, isMobileNow() ? 2 : 4);
+}
+
+function renderDashboard() {
+  dashGrid.innerHTML = "";
+  CARD_DEFS.forEach(def => {
+    const state = layout[def.id];
+    if (!state.visible) return;
+    const card = document.createElement("div");
+    card.className = "dash-card";
+    card.id = "card-" + def.id;
+    card.style.gridColumn = `span ${effectiveSpan(state.span)}`;
+    card.innerHTML = `<h3>${def.title}</h3><div class="card-body">${
+      def.real ? "…" : `<span class="placeholder-note">Sumber data belum ditentukan</span>`
+    }</div>`;
+    dashGrid.appendChild(card);
+  });
+}
+
+function renderSettings() {
+  settingsList.innerHTML = "";
+  let currentGroup = null;
+  CARD_DEFS.forEach(def => {
+    if (def.group !== currentGroup) {
+      currentGroup = def.group;
+      const h = document.createElement("div");
+      h.style.cssText = "font-size:11px;font-weight:600;color:var(--text-muted);margin-top:12px;text-transform:uppercase;";
+      h.textContent = currentGroup;
+      settingsList.appendChild(h);
+    }
+    const state = layout[def.id];
+    const row = document.createElement("div");
+    row.className = "settings-row";
+    row.innerHTML = `
+      <label class="row-label"><input type="checkbox" data-id="${def.id}" class="vis-toggle" ${state.visible ? "checked" : ""}> ${def.title}</label>
+      <input type="range" min="1" max="4" value="${state.span}" data-id="${def.id}" class="span-slider">
+    `;
+    settingsList.appendChild(row);
+  });
+
+  settingsList.querySelectorAll(".vis-toggle").forEach(el => {
+    el.addEventListener("change", () => {
+      layout[el.dataset.id].visible = el.checked;
+      saveDashboardLayout(layout);
+      renderDashboard();
+      populateRealCards();
+    });
+  });
+  settingsList.querySelectorAll(".span-slider").forEach(el => {
+    el.addEventListener("input", () => {
+      layout[el.dataset.id].span = parseInt(el.value, 10);
+      saveDashboardLayout(layout);
+      renderDashboard();
+      populateRealCards();
+    });
+  });
+}
+
+document.getElementById("settingsBtn").addEventListener("click", () => {
+  renderSettings();
+  settingsOverlay.classList.add("open");
+});
+settingsOverlay.addEventListener("click", (e) => {
+  if (e.target === settingsOverlay) settingsOverlay.classList.remove("open");
+});
+document.getElementById("resetLayoutBtn").addEventListener("click", () => {
+  resetDashboardLayout();
+  layout = loadDashboardLayout(DEFAULTS);
+  renderDashboard();
+  renderSettings();
+  populateRealCards();
+});
+
+window.addEventListener("resize", renderDashboard);
+
+// ====== ISI CARD YANG PUNYA DATA PUBLIK BENERAN ======
+function setCardBody(id, html) {
+  const el = document.querySelector(`#card-${id} .card-body`);
+  if (el) el.innerHTML = html;
+}
+
+function chgSpan(chgPct) {
+  if (chgPct == null || isNaN(chgPct)) return `<span style="color:var(--text-muted)">-</span>`;
+  const color = chgPct >= 0 ? "#00a36c" : "#e5484d";
+  const sign = chgPct >= 0 ? "+" : "";
+  return `<span style="color:${color}">${sign}${chgPct.toFixed(2)}%</span>`;
+}
+
+async function populateRealCards() {
+  if (layout["ihsg-mini"].visible) {
+    const d = await fetchGlobalCached("^JKSE");
+    setCardBody("ihsg-mini", d.ok
+      ? `<div style="font-size:20px;font-weight:600">${fmtPrice(d.last)}</div>${chgSpan(d.chgPct)}`
+      : `<span class="placeholder-note">Gagal memuat</span>`);
+  }
+
+  if (layout["us-indices"].visible) {
+    const [sp, ndq, dow] = await Promise.all([
+      fetchGlobalCached("^GSPC"), fetchGlobalCached("^IXIC"), fetchGlobalCached("^DJI")
+    ]);
+    const row = (label, d) => `<div style="display:flex;justify-content:space-between;padding:2px 0">
+      <span>${label}</span><span>${d.ok ? fmtPrice(d.last) + " " : ""}${chgSpan(d.ok ? d.chgPct : null)}</span></div>`;
+    setCardBody("us-indices", row("S&P 500", sp) + row("Nasdaq", ndq) + row("Dow Jones", dow));
+  }
+
+  if (layout["usdidr"].visible) {
+    const d = await fetchGlobalCached("IDR=X");
+    setCardBody("usdidr", d.ok
+      ? `<div style="font-size:18px;font-weight:600">${fmtPrice(d.last)}</div>${chgSpan(d.chgPct)}`
+      : `<span class="placeholder-note">Gagal memuat</span>`);
+  }
+
+  if (layout["commodities"].visible) {
+    const [gold, oil] = await Promise.all([fetchGlobalCached("GC=F"), fetchGlobalCached("CL=F")]);
+    const row = (label, d) => `<div style="display:flex;justify-content:space-between;padding:2px 0">
+      <span>${label}</span><span>${d.ok ? fmtPrice(d.last) + " " : ""}${chgSpan(d.ok ? d.chgPct : null)}</span></div>`;
+    setCardBody("commodities", row("Emas (oz)", gold) + row("Minyak WTI", oil) +
+      `<div class="placeholder-note" style="margin-top:6px">Nikel, Batubara, CPO: sumber data belum ditentukan</div>`);
+  }
+
+  if (layout["yield10y"].visible) {
+    const d = await fetchGlobalCached("^TNX");
+    setCardBody("yield10y", d.ok
+      ? `<div style="font-size:18px;font-weight:600">${d.last.toFixed(2)}%</div>${chgSpan(d.chgPct)}`
+      : `<span class="placeholder-note">Gagal memuat</span>`);
+  }
+
+  if (layout["market-status"].visible) {
+    const idxOpen = isIdxMarketOpen();
+    const usOpen = isUsMarketOpen();
+    const badge = (label, open) => `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">
+      <span style="width:8px;height:8px;border-radius:50%;background:${open ? "#00a36c" : "#999"}"></span>${label}: ${open ? "Buka" : "Tutup"}</span>`;
+    setCardBody("market-status", badge("IDX", idxOpen) + badge("US", usOpen));
+  }
+
+  if (layout["last-updated"].visible) {
+    const now = new Date();
+    const wib = new Date(now.getTime() + (7 * 60 - now.getTimezoneOffset()) * 60000);
+    const hh = String(wib.getHours()).padStart(2, "0");
+    const mm = String(wib.getMinutes()).padStart(2, "0");
+    setCardBody("last-updated", `<div>${hh}:${mm} WIB</div>`);
+  }
+
+  // -- Watchlist grouping: pakai data teknikal watchlist yang sama seperti tab Charts/Screener --
+  const wlVisible = ["wl-bullish", "wl-bearish", "wl-mixed", "wl-newcross"].some(id => layout[id].visible);
+  if (wlVisible) {
+    const stockData = await loadAllStocks(TICKERS, null, null);
+    const bullish = [], bearish = [], mixed = [], newCross = [];
+    Object.values(stockData).forEach(d => {
+      if (!d.ok || d.ma50 == null || d.ma200 == null) return;
+      if (d.lastClose > d.ma50 && d.ma50 > d.ma200) bullish.push(d.ticker);
+      else if (d.lastClose < d.ma50 && d.ma50 < d.ma200) bearish.push(d.ticker);
+      else mixed.push(d.ticker);
+
+      // Deteksi cross MA50/MA200 di 2 titik terakhir series MA
+      const s50 = d.ma[50], s200 = d.ma[200];
+      if (s50 && s200 && s50.length > 1 && s200.length > 1) {
+        const diffNow = s50[s50.length - 1].value - s200[s200.length - 1].value;
+        const diffPrev = s50[s50.length - 2].value - s200[s200.length - 2].value;
+        if (diffPrev < 0 && diffNow > 0) newCross.push(`${d.ticker} (Golden Cross)`);
+        if (diffPrev > 0 && diffNow < 0) newCross.push(`${d.ticker} (Death Cross)`);
+      }
+    });
+
+    const listOrDash = (arr) => arr.length ? arr.join(", ") : `<span class="placeholder-note">Tidak ada</span>`;
+    if (layout["wl-bullish"].visible) setCardBody("wl-bullish", listOrDash(bullish));
+    if (layout["wl-bearish"].visible) setCardBody("wl-bearish", listOrDash(bearish));
+    if (layout["wl-mixed"].visible) setCardBody("wl-mixed", listOrDash(mixed));
+    if (layout["wl-newcross"].visible) setCardBody("wl-newcross", listOrDash(newCross));
+  }
+}
+
+startLiveClock(document.getElementById("liveClock"));
+document.getElementById("themeToggle").addEventListener("click", toggleTheme);
+
+renderDashboard();
+populateRealCards();
+</script>
 </body>
 </html>

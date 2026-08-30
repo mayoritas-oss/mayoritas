@@ -12,6 +12,9 @@
   <a href="index.html">Home</a>
   <a href="charts.html">Charts</a>
   <a href="screener.html" class="active">Screener</a>
+  <span class="nav-spacer"></span>
+  <span class="live-clock" id="liveClock"></span>
+  <button class="icon-btn" id="themeToggle" title="Toggle dark/light">◐</button>
 </div>
 
 <div class="page-body">
@@ -140,6 +143,9 @@ document.querySelectorAll("#screenerTable th").forEach(th => {
 pageSizeSelect.addEventListener("change", () => { page = 1; render(); });
 prevBtn.addEventListener("click", () => { page--; render(); });
 nextBtn.addEventListener("click", () => { page++; render(); });
+
+startLiveClock(document.getElementById("liveClock"));
+document.getElementById("themeToggle").addEventListener("click", toggleTheme);
 
 (async () => {
   statusText.textContent = "Memuat data...";

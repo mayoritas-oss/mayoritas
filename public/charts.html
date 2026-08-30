@@ -13,6 +13,9 @@
   <a href="index.html">Home</a>
   <a href="charts.html" class="active">Charts</a>
   <a href="screener.html">Screener</a>
+  <span class="nav-spacer"></span>
+  <span class="live-clock" id="liveClock"></span>
+  <button class="icon-btn" id="themeToggle" title="Toggle dark/light">◐</button>
 </div>
 
 <div class="page-body">
@@ -249,6 +252,9 @@ function openFullChart(symbol) {
 
 modalClose.addEventListener("click", () => modalOverlay.classList.remove("open"));
 modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove("open"); });
+
+startLiveClock(document.getElementById("liveClock"));
+document.getElementById("themeToggle").addEventListener("click", toggleTheme);
 
 (async () => {
   renderGrid(visibleTickers);

@@ -179,3 +179,115 @@ async function loadAllStocks(tickers, onEach, onProgress) {
 function fmtPrice(v) {
   return v == null ? "…" : Math.round(v).toLocaleString("id-ID");
 }
+
+// ---- Fetch simbol global Yahoo (indeks, komoditas, kurs, yield) ----
+// Sama endpoint dengan fetchStock, tapi symbol dikirim apa adanya (^GSPC, GC=F, IDR=X, dst)
+// -> netlify function mendeteksi & tidak menambahkan .JK.
+async function fetchGlobalSymbol(symbol) {
+  const url = `/.netlify/functions/stock?symbol=${encodeURIComponent(symbol)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const json = await res.json();
+    if (json.status === "error") throw new Error(json.message || "API error");
+    if (!json.values || json.values.length < 2) throw new Error("data kurang");
+    const sorted = [...json.values].reverse(); // ascending
+    const last = sorted[sorted.length - 1];
+    const prev = sorted[sorted.length - 2];
+    const chgPct = prev.close ? ((last.close - prev.close) / prev.close) * 100 : null;
+    return { symbol, ok: true, last: last.close, chgPct, values: sorted };
+  } catch (err) {
+    return { symbol, ok: false, error: err.message };
+  }
+}
+
+// Cache ringan khusus data global (TTL sama seperti currentCacheTtl())
+const GLOBAL_CACHE_KEY = "mayoritas_global_cache_v1";
+async function fetchGlobalCached(symbol) {
+  try {
+    const raw = localStorage.getItem(GLOBAL_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const entry = parsed[symbol];
+    if (entry && Date.now() - entry.ts < currentCacheTtl() && entry.data.ok) return entry.data;
+  } catch (e) {}
+  const data = await fetchGlobalSymbol(symbol);
+  try {
+    const raw = localStorage.getItem(GLOBAL_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    parsed[symbol] = { ts: Date.now(), data };
+    localStorage.setItem(GLOBAL_CACHE_KEY, JSON.stringify(parsed));
+  } catch (e) {}
+  return data;
+}
+
+// ---- Jam WIB live (dipakai di pojok kanan atas top-nav semua halaman) ----
+function startLiveClock(el) {
+  function tick() {
+    const now = new Date();
+    const wib = new Date(now.getTime() + (7 * 60 - now.getTimezoneOffset()) * 60000);
+    const days = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
+    const months = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+    const hh = String(wib.getHours()).padStart(2, "0");
+    const mm = String(wib.getMinutes()).padStart(2, "0");
+    const ss = String(wib.getSeconds()).padStart(2, "0");
+    el.textContent = `${days[wib.getDay()]}, ${wib.getDate()} ${months[wib.getMonth()]} ${wib.getFullYear()} ${hh}:${mm}:${ss} WIB`;
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+
+function isUsMarketOpen() {
+  // NYSE 09:30-16:00 ET. ET = UTC-5 (EST) atau UTC-4 (EDT) — disederhanakan pakai UTC-5 sepanjang tahun
+  // (cukup akurat untuk indikator kasar buka/tutup, bukan untuk keperluan presisi DST).
+  const now = new Date();
+  const et = new Date(now.getTime() + (-5 * 60 - now.getTimezoneOffset()) * 60000);
+  const day = et.getDay();
+  if (day === 0 || day === 6) return false;
+  const mins = et.getHours() * 60 + et.getMinutes();
+  return mins >= 9 * 60 + 30 && mins <= 16 * 60;
+}
+
+// ---- Dashboard card layout: visibility + ukuran (col-span), disimpan di localStorage ----
+const DASHBOARD_LAYOUT_KEY = "mayoritas_dashboard_layout_v1";
+
+function loadDashboardLayout(defaults) {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_LAYOUT_KEY);
+    const saved = raw ? JSON.parse(raw) : {};
+    const merged = {};
+    Object.keys(defaults).forEach(id => {
+      merged[id] = { ...defaults[id], ...(saved[id] || {}) };
+    });
+    return merged;
+  } catch (e) { return { ...defaults }; }
+}
+
+function saveDashboardLayout(layout) {
+  try { localStorage.setItem(DASHBOARD_LAYOUT_KEY, JSON.stringify(layout)); } catch (e) {}
+}
+
+function resetDashboardLayout() {
+  try { localStorage.removeItem(DASHBOARD_LAYOUT_KEY); } catch (e) {}
+}
+
+// ---- Dark/light mode: default ikut sistem, bisa di-override manual ----
+const THEME_KEY = "mayoritas_theme"; // "light" | "dark" | (absen = ikut sistem)
+
+function applyTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark = saved ? saved === "dark" : systemDark;
+  document.documentElement.classList.toggle("theme-dark", dark);
+  return dark;
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains("theme-dark");
+  localStorage.setItem(THEME_KEY, isDark ? "light" : "dark");
+  applyTheme();
+}
+
+applyTheme();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!localStorage.getItem(THEME_KEY)) applyTheme();
+});
