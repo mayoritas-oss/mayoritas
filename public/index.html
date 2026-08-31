@@ -39,27 +39,27 @@
 // colSpan/rowSpan dalam satuan grid 12-kolom x 26px/baris. Disusun compact biar muat 1 layar tanpa scroll.
 const CARD_DEFS = [
   // -- Angka pasar: compact, padat, di atas --
-  { id: "ihsg-mini",     group: "Market Pulse",     title: "IHSG",                              colSpan: 2, rowSpan: 3, real: true },
-  { id: "us-indices",    group: "Global Context",   title: "US Indices",                         colSpan: 3, rowSpan: 3, real: true },
-  { id: "usdidr",        group: "Global Context",   title: "USD/IDR",                            colSpan: 2, rowSpan: 3, real: true },
-  { id: "commodities",   group: "Global Context",   title: "Komoditas",                          colSpan: 2, rowSpan: 3, real: true },
-  { id: "yield10y",      group: "Global Context",   title: "US 10Y Treasury Yield",              colSpan: 2, rowSpan: 3, real: true },
-  { id: "breadth",       group: "Market Pulse",     title: "Breadth IDX (Advance/Decline)",      colSpan: 3, rowSpan: 3, real: false },
-  { id: "sector-perf",   group: "Market Pulse",     title: "Performa Sektor Hari Ini",           colSpan: 4, rowSpan: 3, real: false },
-  { id: "market-status", group: "Kalender & Konteks", title: "Status Pasar (IDX & US)",           colSpan: 3, rowSpan: 3, real: true },
+  { id: "ihsg-mini",     group: "Market Pulse",     title: "IHSG",                              colSpan: 2, rowSpan: 4, real: true },
+  { id: "us-indices",    group: "Global Context",   title: "US Indices",                         colSpan: 3, rowSpan: 4, real: true },
+  { id: "usdidr",        group: "Global Context",   title: "USD/IDR",                            colSpan: 2, rowSpan: 4, real: true },
+  { id: "commodities",   group: "Global Context",   title: "Komoditas",                          colSpan: 2, rowSpan: 4, real: true },
+  { id: "yield10y",      group: "Global Context",   title: "US 10Y Treasury Yield",              colSpan: 2, rowSpan: 4, real: true },
+  { id: "breadth",       group: "Market Pulse",     title: "Breadth IDX (Advance/Decline)",      colSpan: 3, rowSpan: 4, real: false },
+  { id: "sector-perf",   group: "Market Pulse",     title: "Performa Sektor Hari Ini",           colSpan: 4, rowSpan: 4, real: false },
+  { id: "market-status", group: "Kalender & Konteks", title: "Status Pasar (IDX & US)",           colSpan: 3, rowSpan: 4, real: true },
 
   // -- Berita: compact list --
-  { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 colSpan: 3, rowSpan: 6, real: true },
-  { id: "news-global",   group: "News",             title: "Headline Global / US",               colSpan: 3, rowSpan: 6, real: true },
-  { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 colSpan: 3, rowSpan: 6, real: true },
-  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             colSpan: 3, rowSpan: 6, real: false },
+  { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 colSpan: 3, rowSpan: 9, real: true },
+  { id: "news-global",   group: "News",             title: "Headline Global / US",               colSpan: 3, rowSpan: 9, real: true },
+  { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 colSpan: 3, rowSpan: 9, real: true },
+  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             colSpan: 3, rowSpan: 9, real: false },
 
   // -- Kalender: next upcoming event --
-  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 colSpan: 6, rowSpan: 5, real: false },
+  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 colSpan: 6, rowSpan: 7, real: false },
 
   // -- Meta --
-  { id: "last-updated",  group: "Meta",             title: "Terakhir Diperbarui",                colSpan: 2, rowSpan: 2, real: true },
-  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    colSpan: 2, rowSpan: 3, real: false },
+  { id: "last-updated",  group: "Meta",             title: "Terakhir Diperbarui",                colSpan: 2, rowSpan: 3, real: true },
+  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    colSpan: 2, rowSpan: 4, real: false },
 ];
 
 const DEFAULTS = {};
