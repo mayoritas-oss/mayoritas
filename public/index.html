@@ -19,6 +19,7 @@
 </div>
 
 <div class="page-body">
+  <div class="narrative-banner"><span class="tag">Outlook</span><span id="narrativeText">Memuat ringkasan…</span></div>
   <div class="dash-grid" id="dashGrid"></div>
 </div>
 
@@ -35,35 +36,34 @@
 // ====== DEFINISI CARD ======
 // span: 1-4 (lebar relatif di grid desktop 4 kolom; otomatis dipangkas ke maks 2 di mobile)
 // real: true = coba tarik data publik beneran; false = placeholder (sumber data belum diputuskan)
+// colSpan/rowSpan dalam satuan grid 12-kolom x 26px/baris. Disusun compact biar muat 1 layar tanpa scroll.
 const CARD_DEFS = [
-  // -- A. Market Pulse --
-  { id: "ihsg-mini",     group: "Market Pulse",     title: "IHSG",                              span: 2, real: true },
-  { id: "breadth",       group: "Market Pulse",     title: "Breadth IDX (Advance/Decline)",      span: 1, real: false },
-  { id: "sector-perf",   group: "Market Pulse",     title: "Performa Sektor Hari Ini",           span: 2, real: false },
+  // -- Angka pasar: compact, padat, di atas --
+  { id: "ihsg-mini",     group: "Market Pulse",     title: "IHSG",                              colSpan: 2, rowSpan: 3, real: true },
+  { id: "us-indices",    group: "Global Context",   title: "US Indices",                         colSpan: 3, rowSpan: 3, real: true },
+  { id: "usdidr",        group: "Global Context",   title: "USD/IDR",                            colSpan: 2, rowSpan: 3, real: true },
+  { id: "commodities",   group: "Global Context",   title: "Komoditas",                          colSpan: 2, rowSpan: 3, real: true },
+  { id: "yield10y",      group: "Global Context",   title: "US 10Y Treasury Yield",              colSpan: 2, rowSpan: 3, real: true },
+  { id: "breadth",       group: "Market Pulse",     title: "Breadth IDX (Advance/Decline)",      colSpan: 3, rowSpan: 3, real: false },
+  { id: "sector-perf",   group: "Market Pulse",     title: "Performa Sektor Hari Ini",           colSpan: 4, rowSpan: 3, real: false },
+  { id: "market-status", group: "Kalender & Konteks", title: "Status Pasar (IDX & US)",           colSpan: 3, rowSpan: 3, real: true },
 
-  // -- B. Global / US Context --
-  { id: "us-indices",    group: "Global Context",   title: "US Indices",                         span: 2, real: true },
-  { id: "usdidr",        group: "Global Context",   title: "USD/IDR",                            span: 1, real: true },
-  { id: "commodities",   group: "Global Context",   title: "Komoditas",                          span: 2, real: true },
-  { id: "yield10y",      group: "Global Context",   title: "US 10Y Treasury Yield",              span: 1, real: true },
+  // -- Berita: compact list --
+  { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 colSpan: 3, rowSpan: 6, real: true },
+  { id: "news-global",   group: "News",             title: "Headline Global / US",               colSpan: 3, rowSpan: 6, real: true },
+  { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 colSpan: 3, rowSpan: 6, real: true },
+  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             colSpan: 3, rowSpan: 6, real: false },
 
-  // -- C. News --
-  { id: "news-indo",     group: "News",             title: "Headline Indonesia",                 span: 2, real: true },
-  { id: "news-global",   group: "News",             title: "Headline Global / US",               span: 2, real: true },
-  { id: "news-commodity",group: "News",             title: "Headline Komoditas",                 span: 2, real: true },
-  { id: "news-macro",    group: "News",             title: "Headline Ekonomi Makro",             span: 2, real: false },
+  // -- Kalender: next upcoming event --
+  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 colSpan: 6, rowSpan: 5, real: false },
 
-  // -- D. Kalender & Konteks --
-  { id: "econ-calendar", group: "Kalender & Konteks", title: "Kalender Ekonomi",                 span: 2, real: false },
-  { id: "market-status", group: "Kalender & Konteks", title: "Status Pasar (IDX & US)",           span: 2, real: true },
-
-  // -- E. Meta --
-  { id: "last-updated",  group: "Meta",             title: "Terakhir Diperbarui",                span: 1, real: true },
-  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    span: 1, real: false },
+  // -- Meta --
+  { id: "last-updated",  group: "Meta",             title: "Terakhir Diperbarui",                colSpan: 2, rowSpan: 2, real: true },
+  { id: "sentiment-gauge", group: "Meta",           title: "Sentiment Gauge",                    colSpan: 2, rowSpan: 3, real: false },
 ];
 
 const DEFAULTS = {};
-CARD_DEFS.forEach(c => { DEFAULTS[c.id] = { visible: true, span: c.span }; });
+CARD_DEFS.forEach(c => { DEFAULTS[c.id] = { visible: true, colSpan: c.colSpan, rowSpan: c.rowSpan }; });
 
 let layout = loadDashboardLayout(DEFAULTS);
 
@@ -104,9 +104,12 @@ const settingsList = document.getElementById("settingsList");
 function isMobileNow() {
   return window.matchMedia("(max-width: 900px)").matches;
 }
-function effectiveSpan(span) {
-  return Math.min(span, isMobileNow() ? 2 : 4);
+function effectiveCol(colSpan) {
+  const maxCol = isMobileNow() ? 4 : 12;
+  return Math.min(colSpan, maxCol);
 }
+
+let dragSourceId = null;
 
 function renderDashboard() {
   dashGrid.innerHTML = "";
@@ -116,11 +119,73 @@ function renderDashboard() {
     const card = document.createElement("div");
     card.className = "dash-card";
     card.id = "card-" + def.id;
-    card.style.gridColumn = `span ${effectiveSpan(state.span)}`;
-    card.innerHTML = `<h3>${def.title}</h3><div class="card-body">${
+    card.dataset.id = def.id;
+    card.style.gridColumn = `span ${effectiveCol(state.colSpan)}`;
+    card.style.gridRow = `span ${state.rowSpan}`;
+    card.innerHTML = `<h3 draggable="true">${def.title}</h3><div class="card-body">${
       def.real ? "…" : `<span class="placeholder-note">Sumber data belum ditentukan</span>`
-    }</div>`;
+    }</div><div class="resize-handle" title="Tarik untuk ubah ukuran"></div>`;
     dashGrid.appendChild(card);
+  });
+  attachDragAndResize();
+}
+
+// ---- Drag untuk pindah posisi (drag judul card ke card lain buat swap urutan) ----
+function attachDragAndResize() {
+  dashGrid.querySelectorAll(".dash-card").forEach(card => {
+    const handle = card.querySelector("h3");
+    handle.addEventListener("dragstart", (e) => {
+      dragSourceId = card.dataset.id;
+      card.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    handle.addEventListener("dragend", () => card.classList.remove("dragging"));
+
+    card.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (card.dataset.id !== dragSourceId) card.classList.add("drag-over");
+    });
+    card.addEventListener("dragleave", () => card.classList.remove("drag-over"));
+    card.addEventListener("drop", (e) => {
+      e.preventDefault();
+      card.classList.remove("drag-over");
+      const targetId = card.dataset.id;
+      if (!dragSourceId || dragSourceId === targetId) return;
+      const i = cardOrder.indexOf(dragSourceId);
+      const j = cardOrder.indexOf(targetId);
+      cardOrder.splice(i, 1);
+      cardOrder.splice(j, 0, dragSourceId);
+      saveOrder(cardOrder);
+      renderDashboard();
+      populateRealCards();
+    });
+
+    // ---- Resize via handle pojok kanan-bawah ----
+    const resizeHandle = card.querySelector(".resize-handle");
+    resizeHandle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const id = card.dataset.id;
+      const startX = e.clientX, startY = e.clientY;
+      const startColSpan = layout[id].colSpan, startRowSpan = layout[id].rowSpan;
+      const colWidth = dashGrid.clientWidth / (isMobileNow() ? 4 : 12);
+
+      function onMove(ev) {
+        const deltaCol = Math.round((ev.clientX - startX) / colWidth);
+        const deltaRow = Math.round((ev.clientY - startY) / 26);
+        const maxCol = isMobileNow() ? 4 : 12;
+        layout[id].colSpan = Math.max(1, Math.min(maxCol, startColSpan + deltaCol));
+        layout[id].rowSpan = Math.max(2, startRowSpan + deltaRow);
+        card.style.gridColumn = `span ${effectiveCol(layout[id].colSpan)}`;
+        card.style.gridRow = `span ${layout[id].rowSpan}`;
+      }
+      function onUp() {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        saveDashboardLayout(layout);
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
   });
 }
 
@@ -133,7 +198,6 @@ function renderSettings() {
     row.innerHTML = `
       <label class="row-label"><input type="checkbox" data-id="${def.id}" class="vis-toggle" ${state.visible ? "checked" : ""}> ${def.title}</label>
       <div class="row-controls">
-        <input type="range" min="1" max="4" value="${state.span}" data-id="${def.id}" class="span-slider">
         <button class="move-btn" data-id="${def.id}" data-dir="-1" ${idx === 0 ? "disabled" : ""}>↑</button>
         <button class="move-btn" data-id="${def.id}" data-dir="1" ${idx === cardOrder.length - 1 ? "disabled" : ""}>↓</button>
       </div>
@@ -144,14 +208,6 @@ function renderSettings() {
   settingsList.querySelectorAll(".vis-toggle").forEach(el => {
     el.addEventListener("change", () => {
       layout[el.dataset.id].visible = el.checked;
-      saveDashboardLayout(layout);
-      renderDashboard();
-      populateRealCards();
-    });
-  });
-  settingsList.querySelectorAll(".span-slider").forEach(el => {
-    el.addEventListener("input", () => {
-      layout[el.dataset.id].span = parseInt(el.value, 10);
       saveDashboardLayout(layout);
       renderDashboard();
       populateRealCards();
@@ -266,6 +322,9 @@ async function populateNews() {
       : `<span class="placeholder-note">Tidak ada data</span>`);
   });
 }
+
+const narrativeEl = document.getElementById("narrativeText");
+if (narrativeEl) narrativeEl.textContent = "Ringkasan outlook harian belum tersambung ke sumber data — placeholder sampai naskah otomatis disiapkan.";
 
 startLiveClock(document.getElementById("liveClock"));
 document.getElementById("themeToggle").addEventListener("click", toggleTheme);
